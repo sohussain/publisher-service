@@ -1,0 +1,15 @@
+/*
+!config
+!publisher
+!tests
+!Dockerfile
+!.dockerignore
+!README.md
+!.devcontainer
+!.gitignore
+!requirements.txt
+__pycache__
+**/**.log
+!.buildkite
+!devops
+!configs

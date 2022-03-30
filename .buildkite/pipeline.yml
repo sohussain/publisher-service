@@ -1,0 +1,85 @@
+# @author: bilalm19
+
+env:
+  TAG_NAME_AARCH64: hazenai/experiments:publisher-aarch64-version-${BUILDKITE_BUILD_NUMBER}-${BUILDKITE_COMMIT:0:7}
+  TAG_NAME_X86_64: hazenai/experiments:publisher-x86_64-version-${BUILDKITE_BUILD_NUMBER}-${BUILDKITE_COMMIT:0:7}
+  MANIFEST: hazenai/experiments:publisher-master
+  TAG_MANIFEST: "hazenai/experiments:publisher-${BUILDKITE_TAG}"
+  AGENT: $$BUILDKITE_AGENT_NAME
+
+steps:
+  - label: "Run steps for x86_64"
+    key: "steps-x86_64"
+    commands: 
+      - export ARTIFACT_PATH=$HOME/builds/$AGENT/artifacts
+      - ./.buildkite/steps/build-docker-image.sh
+    agents:
+      x86_64: "true"
+    plugins:
+      - docker-login#v2.0.1:
+          username: $DOCKER_NAME
+          password-env: DOCKER_PASS
+
+  - label: "Run steps for aarch64"
+    commands:
+      - export ARTIFACT_PATH=$HOME/builds/$AGENT/artifacts
+      - ./.buildkite/steps/build-docker-image.sh
+    key: "steps-aarch64"
+    agents:
+      aarch64: "true"
+    plugins:
+      - docker-login#v2.0.1:
+          username: $DOCKER_NAME
+          password-env: DOCKER_PASS
+
+  - label: "Create manifest"
+    if: build.branch == "master"
+    depends_on:
+      - step: "steps-x86_64"
+        allow_failure: false
+      - step: "steps-aarch64"
+        allow_failure: false
+    commands:
+      - rm -rf $HOME/.docker/manifests/*
+      - docker manifest create ${MANIFEST} ${TAG_NAME_AARCH64} ${TAG_NAME_X86_64}
+      - docker manifest push -p ${MANIFEST}
+    plugins:
+      - docker-login#v2.0.1:
+          username: $DOCKER_NAME
+          password-env: DOCKER_PASS
+
+  - label: "create tag manifest"
+    if: build.tag != null
+    key: "create-tag"
+    depends_on:
+      - step: "steps-x86_64"
+        allow_failure: false
+      - step: "steps-aarch64"
+        allow_failure: false
+    commands:
+      - rm -rf $HOME/.docker/manifests/*
+      - docker manifest create ${TAG_MANIFEST} ${TAG_NAME_AARCH64} ${TAG_NAME_X86_64}
+      - docker manifest push -p ${TAG_MANIFEST}
+    plugins:
+      - docker-login#v2.0.1:
+          username: $DOCKER_NAME
+          password-env: DOCKER_PASS
+
+  - trigger: "seatbeltedgetesting"
+    if: build.tag != null
+    label: "Run E2E testing"
+    depends_on:
+      - step: "create-tag"
+        allow_failure: false
+    build:
+      message: "Testing Publisher"
+      branch: "feat/prepare_config"
+      env:
+        SERVICE_NAME: "publisher"
+        NEW_BUILD_TAG: ${TAG_MANIFEST}
+        BRANCH: "testing/traj;testing/sbmp;testing/roseek_tx2_traj;testing/multiheadyolt_sbmp_tx2;testing/traj_wrongturn"
+        CONFIG_TRAJ: "/workspace/configs/standard/"
+        CONFIG_SBMP: "/workspace/configs/standard/"
+        CONFIG_ROSEEK_TX2_TRAJ: "/workspace/configs/roseek_tx2_traj/"
+        CONFIG_MULTIHEADYOLT_SBMP_TX2: "/workspace/configs/standard/"
+        CONFIG_TRAJ_WRONGTURN: "/workspace/configs/roseek_tx2_traj/"
